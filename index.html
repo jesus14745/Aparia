@@ -96,17 +96,18 @@ input[type=color]{width:44px;height:34px;border:0;padding:0;background:none}
 <div id="toast"></div>
 <input type="file" id="file" accept="image/*" capture="environment" hidden>
 <input type="file" id="rfile" accept=".json,application/json" hidden>
+<input type="file" id="cfile" accept="image/*" capture="user" hidden>
 <script>
 /* Versión independiente: el respaldo se descarga como archivo desde el navegador */
 const claude={use:async()=>({save:async({filename,data})=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));a.download=filename;document.body.appendChild(a);a.click();a.remove();return{status:"saved"}}})};
 const CATS={top:"Suéter / top",bottom:"Pantalón / falda",shoes:"Calzado",outer:"Abrigo",hat:"Gorro",acc:"Accesorio"};
 const SEAS={all:"Todo el año",cold:"Frío",hot:"Calor"},OCC={casual:"Casual",work:"Trabajo",out:"Salida",party:"Fiesta",gym:"Gym"};
-const S={items:[],favs:[],tab:"looks",filter:"all",pin:null,looks:[],season:"all",occ:"any",log:[],tone:null,wx:null,cal:{},trash:[],seen:[],cm:null};
+const S={items:[],favs:[],tab:"looks",filter:"all",pin:null,looks:[],season:"all",occ:"any",log:[],tone:null,wx:null,cal:{},trash:[],seen:[],cm:null,analysis:null};
 let D=null;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function toast(t){const e=$("#toast");e.textContent=t;e.style.display="block";setTimeout(()=>e.style.display="none",2400)}
-function load(){try{const d=JSON.parse(localStorage.getItem("aparia:v1")||"{}");S.items=d.items||[];S.favs=d.favs||[];S.log=d.log||[];S.tone=d.tone||null;S.cal=d.cal||{};S.seen=d.seen||[];S.trash=(d.trash||[]).filter(t=>Date.now()-t.del<5*864e5)}catch(e){}
+function load(){try{const d=JSON.parse(localStorage.getItem("aparia:v1")||"{}");S.items=d.items||[];S.favs=d.favs||[];S.log=d.log||[];S.tone=d.tone||null;S.analysis=d.analysis||null;S.cal=d.cal||{};S.seen=d.seen||[];S.trash=(d.trash||[]).filter(t=>Date.now()-t.del<5*864e5)}catch(e){}
   try{const w=JSON.parse(localStorage.getItem("aparia:wx")||"null");if(w&&Date.now()-w.ts<108e5)S.wx=w}catch(e){}}
 function save(ns){try{localStorage.setItem("aparia:v1",JSON.stringify(snap()))}catch(e){toast("No se pudo guardar: almacenamiento lleno")}S._new=undefined;if(!ns)syncSoon()}
 
@@ -258,6 +259,7 @@ function readFile(f){
 /* ---------- eventos ---------- */
 document.addEventListener("click",e=>{
   const nb=e.target.closest("nav button");if(nb){S.tab=nb.dataset.tab;render();return}
+  if(e.target.id==="cac"&&CA){caTap(e);return}
   if(e.target.id==="pvi"&&D){const r=e.target.getBoundingClientRect(),b=D.box;
     const x=Math.min(D.w-1,Math.max(0,Math.round(b.x0+(e.clientX-r.left)/r.width*b.bw))),y=Math.min(D.h-1,Math.max(0,Math.round(b.y0+(e.clientY-r.top)/r.height*b.bh)));
     D.taps.push(y*D.w+x);process();updatePreview();return}
@@ -278,14 +280,14 @@ document.addEventListener("click",e=>{
     S.items.push({id:"i"+Date.now().toString(36)+Math.random().toString(36).slice(2,5),hex:$("#dcol").value,img:D.out.toDataURL("image/webp",.85),...readFields()});
     save();$("#modal").classList.remove("on");D=null;S.tab="closet";S.looks=[];render();toast("Prenda guardada");
   }
-  else if(act==="cancel"){$("#modal").classList.remove("on");D=null}
+  else if(act==="cancel"){$("#modal").classList.remove("on");D=null;CA=null}
   else if(act==="item")openItem(a.dataset.id);
   else if(act==="delask")openItem(a.dataset.id,true);
   else if(act==="edit")openEdit(a.dataset.id);
   else if(act==="delyes"){const id=a.dataset.id;const gone=S.items.find(x=>x.id===id);if(gone)S.trash.push({...gone,del:Date.now()});S.items=S.items.filter(x=>x.id!==id);S.favs=S.favs.filter(k=>!k.split(",").includes(id));if(S.pin===id)S.pin=null;S.looks=[];save();closeM();render();toast("Prenda en la papelera por 5 días")}
   else if(act==="saveedit"){const i=S.items.find(x=>x.id===a.dataset.id);if(i){Object.assign(i,readFields(),{hex:$("#dcol").value});save();S.looks=[];closeM();render();toast("Cambios guardados")}}
   else if(act==="wash"){const i=S.items.find(x=>x.id===a.dataset.id);if(i){i.wash=!i.wash;if(i.wash&&S.pin===i.id)S.pin=null;save();S.looks=[];closeM();render();toast(i.wash?"Marcada en lavado":"Lista para usar")}}
-  else if(act==="tone"){S.tone=S.tone===a.dataset.v?null:a.dataset.v;save();S.looks=[];render()}
+  else if(act==="tone"){S.tone=S.tone===a.dataset.v?null:a.dataset.v;S.analysis=null;save();S.looks=[];render()}
   else if(act==="wx")getWx();
   else if(act==="gwx")getWx();
   else if(act==="occ"){S.occ=a.dataset.v;S.looks=gen();render()}
@@ -308,6 +310,11 @@ document.addEventListener("click",e=>{
   else if(act==="gin"||act==="gsync")gSync(true);
   else if(act==="gout"){G.tok=null;G.mail="";try{localStorage.removeItem("aparia:g")}catch(e){}toast("Cuenta desconectada");render()}
   else if(act==="notif")askNotif();
+  else if(act==="can")caStart();
+  else if(act==="cafile"){$("#cfile").value="";$("#cfile").click()}
+  else if(act==="caskip"){CA.pts[CA.cur]=null;caRender()}
+  else if(act==="careslt"){caResult()}
+  else if(act==="casave"){S.analysis=CA.res;S.tone=CA.res.tone;save();S.looks=[];closeM();render();toast("Análisis guardado ♥")}
   else if(act==="used"){const i=+a.dataset.i,set=a.dataset.from==="favs"?S.favs[i].split(",").map(id=>S.items.find(x=>x.id===id)).filter(Boolean):S.looks[i].set;
     const rp=repeatOf(set);if(rp>0){askRepeat(set,rp);return}markUsed(set)}
   else if(act==="share")shareLink();
@@ -322,10 +329,11 @@ document.addEventListener("change",e=>{
   if(e.target.id==="fseas"){S.season=e.target.value;S.looks=gen();render()}
   else if(e.target.id==="focc"){S.occ=e.target.value;S.looks=gen();render()}
 });
+$("#cfile").addEventListener("change",e=>{const f=e.target.files[0];if(f)caPhoto(f)});
 $("#file").addEventListener("change",e=>{const f=e.target.files[0];if(f)readFile(f)});
 const GCID="409147415904-832b42n6ngpmm13k030gvepgtahr9lpa.apps.googleusercontent.com";
 const G={tok:null,exp:0,mail:"",t:null};
-const snap=()=>({app:"aparia",v:2,items:S.items,favs:S.favs,log:S.log,tone:S.tone,cal:S.cal,trash:S.trash,seen:S.seen});
+const snap=()=>({app:"aparia",v:2,items:S.items,favs:S.favs,log:S.log,tone:S.tone,analysis:S.analysis,cal:S.cal,trash:S.trash,seen:S.seen});
 const dkey=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 let EM=null,PEND=null,CD=null,CI=[];
 function repeatOf(set){const k=favKey(set);let m=null;for(const x of S.log)if(x.k.split(",").sort().join()===k){const n=daysAgo(x.d);if(n<=14&&(m===null||n<m))m=n}return m}
@@ -439,7 +447,7 @@ function mergeIn(c){
   S.favs=[...new Set([...S.favs,...(c.favs||[])])];
   for(const x of(c.log||[]))if(!S.log.some(y=>y.d===x.d))S.log.push(x);
   S.log.sort((a,b)=>a.d<b.d?-1:1);S.log=S.log.slice(-60);
-  S.cal={...(c.cal||{}),...S.cal};if(!S.tone&&c.tone)S.tone=c.tone;
+  S.cal={...(c.cal||{}),...S.cal};if(!S.tone&&c.tone){S.tone=c.tone;S.analysis=c.analysis||null}
   S.seen=[...new Set([...S.seen,...(c.seen||[])])].slice(-100);save(true);
 }
 async function gSync(manual){
@@ -456,6 +464,67 @@ async function gSync(manual){
   }catch(e){if(manual&&GCID)toast("No se pudo sincronizar")}
 }
 function syncSoon(){if(!G.tok||Date.now()>G.exp)return;clearTimeout(G.t);G.t=setTimeout(()=>gSync(false),4000)}
+/* análisis colorimétrico: todo ocurre en el celular, la foto no se guarda */
+const SPAL={"Primavera":{good:["#ff7f6e","#f6b93b","#8fd16b","#4fc1c4","#f4a6a0","#fff1d0"],avoid:["#2b2b2b","#6b5b95","#8a8f99"]},"Otoño":{good:["#c1633a","#d8a31a","#7a7a3a","#8a1c2b","#9c6b3f","#2f5d50"],avoid:["#ff00ff","#b9c6e8","#e8e8f0"]},"Verano":{good:["#8aa1d6","#b98ac8","#d98fa8","#6aa5a0","#9aa5b8","#f1e6ee"],avoid:["#e07a1f","#c1633a","#d8a31a"]},"Invierno":{good:["#c8102e","#1d2a44","#2e5aa8","#7a2c8c","#111111","#ffffff"],avoid:["#d8a31a","#c9a98a","#b07a4a"]}};
+const tn=t=>t==="warm"?"cálido":t==="cool"?"frío":"neutro";
+const palOf=()=>{const a=S.analysis;if(a&&SPAL[a.season])return SPAL[a.season];const T=S.tone&&TONES[S.tone];return T?{good:T[1],avoid:T[2]}:null};
+let CA=null;
+function lab(r,g,b){const f=v=>{v/=255;return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4)},R=f(r),G=f(g),B=f(b),t=v=>v>.008856?Math.cbrt(v):7.787*v+16/116;
+  const x=(R*.4124+G*.3576+B*.1805)/.95047,y=R*.2126+G*.7152+B*.0722,z=(R*.0193+G*.1192+B*.9505)/1.08883;return{L:116*t(y)-16,a:500*(t(x)-t(y)),b:200*(t(y)-t(z))}}
+function analysisCard(){const a=S.analysis;return `<div class="card"><div class="tag">Análisis colorimétrico</div>`+(a?`<p class="dsc"><b style="color:var(--tx)">${a.season}</b> · subtono ${tn(a.tone)} · piel ${a.depth} · contraste ${a.contrast}<br>Metal que te favorece: ${a.metal}. Confianza ${a.conf}. Hecho el ${a.date.split("-").reverse().join("/")}.</p>`:`<p class="dsc">Con una selfie y unas pruebas rápidas descubre tu subtono, tu temporada de color y los colores que mejor te quedan. La foto no se guarda: solo el resultado.</p>`)+`<button class="btn" data-act="can">${a?"Repetir análisis":"Hacer análisis"}</button></div>`}
+function caStart(){CA={step:"intro",pts:{}};caRender();$("#modal").classList.add("on")}
+function caPhoto(f){
+  const u=URL.createObjectURL(f),im=new Image();
+  im.onload=()=>{URL.revokeObjectURL(u);if(!CA)return;const k=Math.min(1,360/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.max(1,im.width*k|0);c.height=Math.max(1,im.height*k|0);
+    c.getContext("2d",{willReadFrequently:true}).drawImage(im,0,0,c.width,c.height);CA.cv=c;CA.thumb=c.toDataURL("image/jpeg",.6);CA.pts={};CA.step="pick";caRender()};
+  im.onerror=()=>toast("No se pudo leer la foto");im.src=u;
+}
+function caRender(){
+  const sh=$("#sheet");
+  if(CA.step==="intro")sh.innerHTML=`<div class="tag">Análisis colorimétrico</div><p class="dsc">Para un buen resultado usa luz natural (junto a una ventana), sin maquillaje ni filtros, con la cara de frente. La foto se analiza solo en tu celular y se descarta al terminar.</p><div class="row"><button class="btn" data-act="cafile">📷 Tomar selfie</button><button class="chip" data-act="cancel">Cancelar</button></div>`;
+  else if(CA.step==="pick"){
+    const order=["skin1","skin2","hair","eye"],names={skin1:"Toca tu mejilla",skin2:"Toca tu frente",hair:"Toca tu cabello",eye:"Toca el iris de tu ojo"},cur=order.find(k=>!(k in CA.pts));
+    if(!cur){CA.step="tests";return caRender()}
+    CA.cur=cur;const opt=cur==="hair"||cur==="eye";
+    sh.innerHTML=`<div class="tag">${names[cur]}</div><p class="sc">Paso ${order.indexOf(cur)+1} de 4${opt?" · opcional":""}. Elige una zona sin sombras ni brillos.</p><canvas id="cac" style="max-width:100%;border-radius:12px;cursor:crosshair"></canvas><div class="row" style="margin-top:8px">${opt?`<button class="chip" data-act="caskip">Omitir</button>`:""}<button class="chip" data-act="cancel">Cancelar</button></div>`;
+    const c=$("#cac");c.width=CA.cv.width;c.height=CA.cv.height;const x=c.getContext("2d");x.drawImage(CA.cv,0,0);
+    for(const k in CA.pts){const p=CA.pts[k];if(p){x.strokeStyle="#c8102e";x.lineWidth=3;x.beginPath();x.arc(p.x,p.y,9,0,7);x.stroke()}}
+  }else if(CA.step==="tests"){
+    const dr=c=>`<div style="position:relative;width:92px;height:92px;overflow:hidden;border-radius:10px;flex:none"><img src="${CA.thumb}" alt="" style="width:100%;height:100%;object-fit:cover"><div style="position:absolute;left:0;right:0;bottom:0;height:34%;background:${c}"></div></div>`;
+    const sel=(id,t,o)=>`<label class="sc">${t}<select id="${id}">${o.map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select></label>`;
+    sh.innerHTML=`<div class="tag">Pruebas de colorimetría</div><p class="sc">Prueba de telas: mira cómo cambia tu cara con cada color debajo.</p>
+    <div class="sc" style="margin-top:6px">Fila A · colores cálidos</div><div style="display:flex;gap:6px">${["#ff7f6e","#f6b93b","#c1633a"].map(dr).join("")}</div>
+    <div class="sc" style="margin-top:6px">Fila B · colores fríos</div><div style="display:flex;gap:6px;margin-bottom:8px">${["#d6246e","#2e5aa8","#9a7bd1"].map(dr).join("")}</div>
+    ${sel("q0","¿En qué fila te ves más luminosa y con la piel más pareja?",[[0,"No veo diferencia"],[1,"Fila A"],[-1,"Fila B"]])}
+    ${sel("q1","Joyería: ¿qué te favorece más?",[[0,"Ambos igual"],[1,"Oro"],[-1,"Plata"]])}
+    ${sel("q2","Venas de la muñeca (con luz natural)",[[0,"No sé"],[1,"Verdosas"],[-1,"Azules o moradas"]])}
+    ${sel("q3","Con el sol",[[0,"Depende"],[1,"Me bronceo fácil, tono dorado"],[-1,"Me quemo o me enrojezco"]])}
+    <div class="row" style="margin-top:8px"><button class="btn" data-act="careslt">Ver resultado</button><button class="chip" data-act="cancel">Cancelar</button></div>`;
+  }else if(CA.step==="result"){
+    const r=CA.res,P=SPAL[r.season]||{good:TONES.neutral[1],avoid:TONES.neutral[2]},sw=a=>a.map(c=>`<span class="dot" style="background:${c};width:28px;height:28px;margin-right:6px"></span>`).join("");
+    sh.innerHTML=`<div class="tag" style="font-size:20px">${r.season}</div>
+    <p class="dsc">Subtono ${tn(r.tone)} · piel ${r.depth} · contraste ${r.contrast}. Confianza ${r.conf}.<br>En la foto, tu piel tiene un matiz ${r.photo}. Metal que te favorece: ${r.metal}.</p>
+    <div class="sc">Te favorecen</div><div style="margin:4px 0 8px">${sw(P.good)}</div><div class="sc">Mejor evitar</div><div style="margin:4px 0 8px">${sw(P.avoid)}</div>
+    <p class="sc">Es una estimación: la luz y la cámara cambian los colores. Si algo no te convence, ajusta el tono a mano en Mi paleta.</p>
+    <div class="row"><button class="btn" data-act="casave">Guardar mi análisis</button><button class="chip" data-act="can">Repetir</button></div>`;
+  }
+}
+function caTap(e){
+  const c=e.target,r=c.getBoundingClientRect(),x=(e.clientX-r.left)*c.width/r.width,y=(e.clientY-r.top)*c.height/r.height;
+  const d=CA.cv.getContext("2d").getImageData(Math.max(0,Math.round(x)-4),Math.max(0,Math.round(y)-4),9,9).data;let R=0,G=0,B=0,n=0;
+  for(let i=0;i<d.length;i+=4){R+=d[i];G+=d[i+1];B+=d[i+2];n++}
+  CA.pts[CA.cur]={x,y,rgb:[R/n,G/n,B/n]};caRender();
+}
+function caResult(){
+  const P=CA.pts,sk=[P.skin1,P.skin2].filter(Boolean).map(p=>lab(...p.rgb)),n=sk.length||1;
+  const L=sk.reduce((s,v)=>s+v.L,0)/n,A=sk.reduce((s,v)=>s+v.a,0)/n,Bb=sk.reduce((s,v)=>s+v.b,0)/n,h=Math.atan2(Bb,A)*180/Math.PI;
+  const sp=Math.max(-1,Math.min(1,(h-57)/8)),q=id=>+$("#"+id).value,tot=(1.5*sp+q("q0")+q("q1")+q("q2")+.5*q("q3"))/5;
+  const tone=tot>.2?"warm":tot<-.2?"cool":"neutral",depth=L>=68?"clara":L>=52?"media":"profunda";
+  let contrast="medio";const ref=[P.hair,P.eye].filter(Boolean).map(p=>lab(...p.rgb).L);if(ref.length){const dd=L-Math.min(...ref);contrast=dd>45?"alto":dd>25?"medio":"bajo"}
+  const season=tone==="warm"?(L>=60?"Primavera":"Otoño"):tone==="cool"?(L>=60?"Verano":"Invierno"):"Neutra",at=Math.abs(tot);
+  CA.res={tone,season,depth,contrast,conf:at>.5?"alta":at>.25?"media":"baja",metal:tone==="warm"?"dorado":tone==="cool"?"plateado":"dorado y plateado",date:today(),photo:sp>.3?"cálido":sp<-.3?"frío":"neutro"};
+  CA.step="result";caRender();
+}
 const MSGS=["Hoy no necesitas el outfit perfecto, solo uno que te haga sonreír.","Te ves bien con lo que elijas: lo haces tú.","Elige rápido: tu primera idea casi siempre es la mejor.","Ariana, hoy el mundo se ve mejor con tu sonrisa.","La confianza es el mejor accesorio, y a ti te sobra.","Un día lindo empieza con un look que te guste a ti.","Menos dudas, más brillo.","Tu estilo es único, y hoy también.","Sal con ganas, que el resto lo pones tú.","No hay combinación mala cuando te sientes tú.","Hoy mereces verte y sentirte increíble.","Pequeños detalles, gran día.","Con rojo, dorado o lo que elijas, brillas igual.","Alguien piensa en ti con cariño hoy."];
 const TONES={warm:["Cálido",["#c1633a","#d8a31a","#7a7a3a","#f1e4d2","#8a1c2b","#e8735a"],["#b9c6e8","#a9b8d9","#cfc9e8"],"terracota, mostaza, oliva o vino"],cool:["Frío",["#2e5aa8","#6a4fa3","#1f8a8a","#b03a7a","#e8e8f0","#1d2a44"],["#d8a31a","#c1633a","#e0b07a"],"azul, violeta, verde agua o fucsia"],neutral:["Neutro",["#7a8f8a","#b07a7a","#6b6b8a","#c9b9a3","#2f4f4f","#a6465a"],["#ff00ff","#ccff00","#00ffff"],"verde grisáceo, rosa viejo o azul pizarra"]};
 function toneFit(h){if(S.tone==="warm")return(h<=110||h>=330)?1:(h>=190&&h<=290)?-1:0;if(S.tone==="cool")return((h>=160&&h<=300)||(h>=320&&h<=350))?1:(h>=20&&h<=60)?-1:0;return 0}
@@ -494,9 +563,9 @@ function missing(){
 function styleView(){
   const sw=a=>a.map(c=>`<span class="dot" style="background:${c};width:26px;height:26px;margin-right:6px"></span>`).join(""),T=S.tone&&TONES[S.tone];
   const hist=S.log.slice(-5).reverse().map(x=>{const set=x.k.split(",").map(id=>S.items.find(i=>i.id===id)).filter(Boolean);return set.length?`<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><span class="sc" style="width:46px">${x.d.slice(5).split("-").reverse().join("/")}</span>${set.map(i=>`<img src="${i.img}" alt="" style="width:36px;height:36px;object-fit:contain;background:var(--bg);border-radius:8px">`).join("")}</div>`:""}).join("");
-  return `<div class="card"><div class="tag">Mi paleta</div><p class="dsc">Elige tu tono de piel: los looks con tus colores suben de puntaje.</p>
+  return analysisCard()+`<div class="card"><div class="tag">Mi paleta</div><p class="dsc">Elige tu tono de piel: los looks con tus colores suben de puntaje.</p>
   <div class="row" style="margin-bottom:8px">${Object.entries(TONES).map(([k,v])=>`<button class="chip ${S.tone===k?"on":""}" data-act="tone" data-v="${k}">${v[0]}</button>`).join("")}</div>
-  ${T?`<div class="sc">Te favorecen</div><div style="margin:4px 0 8px">${sw(T[1])}</div><div class="sc">Mejor evitar</div><div style="margin-top:4px">${sw(T[2])}</div>`:""}</div>
+  ${(()=>{const P=palOf();return P?`<div class="sc">Te favorecen</div><div style="margin:4px 0 8px">${sw(P.good)}</div><div class="sc">Mejor evitar</div><div style="margin-top:4px">${sw(P.avoid)}</div>`:""})()}</div>
   <div class="card"><div class="tag">Te falta</div>${missing().map(m=>`<p class="dsc" style="margin:8px 0 0"><b style="color:var(--tx)">${m.t}</b><br>${m.d}</p>`).join("")}</div>
   <div class="card"><div class="tag">Últimos looks</div>${hist||`<p class="dsc">Toca “Lo usé hoy” en un look y aparecerá aquí.</p>`}</div>${statsCard()}${acctCard()}`;
 }
@@ -507,7 +576,7 @@ async function shareLink(){
   $("#sheet").innerHTML=`<div class="tag" style="margin-bottom:6px">Copia este enlace</div><input type="text" id="lk" readonly value="${LINK}"><div class="row" style="margin-top:8px"><button class="btn" data-act="cancel">Cerrar</button></div>`;
   $("#modal").classList.add("on");setTimeout(()=>{const i=$("#lk");if(i){i.focus();i.select()}},50);
 }
-function closeM(){$("#modal").classList.remove("on");D=null}
+function closeM(){$("#modal").classList.remove("on");D=null;CA=null}
 function fields(v){
   return `<select id="dcat">${Object.entries(CATS).map(([k,t])=>`<option value="${k}" ${v.cat===k?"selected":""}>${t}</option>`).join("")}</select>
   <div class="row" style="margin:0"><select id="dpat" style="flex:1"><option value="solid">Liso</option><option value="print" ${v.patt==="print"?"selected":""}>Estampado</option></select>
